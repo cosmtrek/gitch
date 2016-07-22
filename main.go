@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"time"
 
 	"github.com/libgit2/git2go"
+	"gopkg.in/urfave/cli.v1"
 )
 
 type User struct {
@@ -32,11 +34,43 @@ var (
 	commitResultChan chan UserCommitResult
 )
 
+func initApp() *cli.App {
+	app := cli.NewApp()
+	app.Name = "gitch"
+	app.Usage = "g(b)itch analyses history of a git project"
+
+	app.Commands = []cli.Command{
+		{
+			Name:  "authors",
+			Usage: "analyses contributors' work",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "order",
+					Value: "count",
+					Usage: "authors order by commit number",
+				},
+			},
+			Action: func(c *cli.Context) error {
+				authorsAction(c.String("order"))
+				return nil
+			},
+		},
+	}
+
+	return app
+}
 func main() {
-	repo, err := git.OpenRepository("/Users/cosmtrek/Code/discourse")
+	app := initApp()
+	app.Run(os.Args)
+}
+
+func authorsAction(order string) {
+	cur, _ := os.Getwd()
+	repo, err := git.OpenRepository(cur)
 	if err != nil {
 		log.Fatal("Failed to open repo, err:", err)
 	}
+	defer repo.Free()
 
 	commitChan = make(chan *Commit, 1000)
 	commitResultChan = make(chan UserCommitResult)
@@ -48,6 +82,11 @@ LOOP:
 	for {
 		select {
 		case r := <-commitResultChan:
+			if order == "span" {
+				sort.Sort(ByCommitSpan(r.result))
+			} else {
+				sort.Sort(ByCommitCount(r.result))
+			}
 			for _, v := range r.result {
 				fmt.Printf("%s\n", v)
 			}
@@ -58,12 +97,11 @@ LOOP:
 }
 
 func traverseRepo(repo *git.Repository) {
-	log.Println("Traversing repo...")
-
 	odb, err := repo.Odb()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer odb.Free()
 
 	err = odb.ForEach(func(oid *git.Oid) error {
 		obj, err := repo.Lookup(oid)
@@ -88,6 +126,7 @@ func traverseRepo(repo *git.Repository) {
 				CommittedAt: c.Committer().When.UTC(),
 				Message:     c.Message(),
 			}
+			obj.Free()
 		}
 		return nil
 	})
@@ -95,7 +134,6 @@ func traverseRepo(repo *git.Repository) {
 		log.Fatalln("Something wrong...")
 	}
 	close(commitChan)
-	log.Println("Finishing traversing repo")
 }
 
 type UserCommit struct {
@@ -109,7 +147,21 @@ type UserCommit struct {
 func (uc UserCommit) String() string {
 	cs := fmt.Sprintf("%d-%d-%d", uc.CommitStart.Year(), uc.CommitStart.Month(), uc.CommitStart.Day())
 	ce := fmt.Sprintf("%d-%d-%d", uc.CommitEnd.Year(), uc.CommitEnd.Month(), uc.CommitEnd.Day())
-	return fmt.Sprintf("%s(%s), %d, %s(%s ~ %s)", uc.Name, uc.Email, uc.CommitCount, uc.CommitSpan, cs, ce)
+	return fmt.Sprintf("%s(%s), %d, %s(%s ~ %s)", uc.Name, uc.Email, uc.CommitCount, humanDuraion(uc.CommitSpan), cs, ce)
+}
+
+func humanDuraion(t time.Duration) string {
+	m := t.Minutes()
+	h := t.Hours()
+
+	if h < 24 {
+		return t.String()
+	} else {
+		d := int(h / 24)
+		hh := int(h) % 24
+		mm := int(m) % 60
+		return fmt.Sprintf("%dd%dh%dm", d, hh, mm)
+	}
 }
 
 type ByCommitCount []UserCommit
@@ -127,7 +179,6 @@ func (a ByCommitSpan) Less(i, j int) bool {
 }
 
 func calculateCommits() {
-	log.Println("Calculating commits...")
 	commitHash := make(map[string]*UserCommit, 1000)
 
 LOOP:
@@ -166,11 +217,9 @@ LOOP:
 	for _, v := range commitHash {
 		result = append(result, *v)
 	}
-	sort.Sort(ByCommitCount(result))
 
 	commitResultChan <- UserCommitResult{
 		result: result,
 	}
 	close(commitResultChan)
-	log.Println("Finish calculatting")
 }
