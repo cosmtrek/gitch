@@ -38,14 +38,17 @@ func initApp() *cli.App {
 	app := cli.NewApp()
 	app.Name = "gitch"
 	app.Usage = "g(b)itch analyses history of a git project"
+	app.Version = "0.1.0"
+	app.Author = "Rick Yu <cosmtrek@gmail.com>"
 
 	app.Commands = []cli.Command{
 		{
-			Name:  "authors",
-			Usage: "analyses contributors' work",
+			Name:    "authors",
+			Aliases: []string{"au"},
+			Usage:   "analyses contributors' work",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "order",
+					Name:  "order, o",
 					Value: "count",
 					Usage: "authors order by commit number",
 				},
@@ -78,20 +81,14 @@ func authorsAction(order string) {
 	go traverseRepo(repo)
 	go calculateCommits()
 
-LOOP:
-	for {
-		select {
-		case r := <-commitResultChan:
-			if order == "span" {
-				sort.Sort(ByCommitSpan(r.result))
-			} else {
-				sort.Sort(ByCommitCount(r.result))
-			}
-			for _, v := range r.result {
-				fmt.Printf("%s\n", v)
-			}
-			break LOOP
-		default:
+	for r := range commitResultChan {
+		if order == "span" {
+			sort.Sort(ByCommitSpan(r.result))
+		} else {
+			sort.Sort(ByCommitCount(r.result))
+		}
+		for _, v := range r.result {
+			fmt.Printf("%s\n", v)
 		}
 	}
 }
@@ -181,34 +178,26 @@ func (a ByCommitSpan) Less(i, j int) bool {
 func calculateCommits() {
 	commitHash := make(map[string]*UserCommit, 1000)
 
-LOOP:
-	for {
-		select {
-		case c := <-commitChan:
-			if c == nil { // channel closed
-				break LOOP
+	for c := range commitChan {
+		val, ok := commitHash[c.Author.Email]
+		if ok {
+			val.CommitCount += 1
+			if c.CreatedAt.Before(val.CommitStart) {
+				val.CommitStart = c.CreatedAt
+			} else if c.CreatedAt.After(val.CommitEnd) {
+				val.CommitEnd = c.CreatedAt
 			}
-
-			val, ok := commitHash[c.Author.Email]
-			if ok {
-				val.CommitCount += 1
-				if c.CreatedAt.Before(val.CommitStart) {
-					val.CommitStart = c.CreatedAt
-				} else if c.CreatedAt.After(val.CommitEnd) {
-					val.CommitEnd = c.CreatedAt
-				}
-				val.CommitSpan = val.CommitEnd.Sub(val.CommitStart)
-			} else {
-				commitHash[c.Author.Email] = &UserCommit{
-					User: User{
-						Name:  c.Author.Name,
-						Email: c.Author.Email,
-					},
-					CommitCount: 1,
-					CommitStart: c.CreatedAt,
-					CommitEnd:   c.CreatedAt,
-					CommitSpan:  1,
-				}
+			val.CommitSpan = val.CommitEnd.Sub(val.CommitStart)
+		} else {
+			commitHash[c.Author.Email] = &UserCommit{
+				User: User{
+					Name:  c.Author.Name,
+					Email: c.Author.Email,
+				},
+				CommitCount: 1,
+				CommitStart: c.CreatedAt,
+				CommitEnd:   c.CreatedAt,
+				CommitSpan:  1,
 			}
 		}
 	}
