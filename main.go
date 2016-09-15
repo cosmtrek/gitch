@@ -29,9 +29,17 @@ type UserCommitResult struct {
 	result []UserCommit
 }
 
+type Analysis struct {
+	TotalTime    time.Duration
+	TotalAuthors int
+	TotalCommits int
+}
+
 var (
 	commitChan       chan *Commit
 	commitResultChan chan UserCommitResult
+
+	analysis Analysis
 )
 
 func initApp() *cli.App {
@@ -65,8 +73,10 @@ func initApp() *cli.App {
 }
 
 func main() {
+	analysis = Analysis{}
 	app := initApp()
 	app.Run(os.Args)
+	analysis.String()
 }
 
 func authorsAction(order string) {
@@ -96,9 +106,7 @@ func authorsAction(order string) {
 	}
 
 	end := time.Now()
-	fmt.Println("----------")
-	duration := end.Sub(begin)
-	fmt.Printf("Total time: %s", duration)
+	analysis.TotalTime = end.Sub(begin)
 }
 
 func traverseRepo(repo *git.Repository) {
@@ -185,8 +193,10 @@ func (a ByCommitSpan) Less(i, j int) bool {
 
 func calculateCommits() {
 	commitHash := make(map[string]*UserCommit, 1000)
+	totalCommits := 0
 
 	for c := range commitChan {
+		totalCommits += 1
 		val, ok := commitHash[c.Author.Email]
 		if ok {
 			val.CommitCount += 1
@@ -219,4 +229,15 @@ func calculateCommits() {
 		result: result,
 	}
 	close(commitResultChan)
+
+	analysis.TotalAuthors = len(commitHash)
+	analysis.TotalCommits = totalCommits
+}
+
+func (a Analysis) String() {
+	fmt.Println("\n----------")
+	fmt.Println("Analysis")
+	fmt.Printf("time: %s\n", a.TotalTime)
+	fmt.Printf("authors: %d\n", a.TotalAuthors)
+	fmt.Printf("commits: %d\n", a.TotalCommits)
 }
