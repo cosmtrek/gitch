@@ -80,6 +80,7 @@ func authorsAction(order string) {
 	commitChan = make(chan *Commit, 1000)
 	commitResultChan = make(chan UserCommitResult)
 
+	begin := time.Now()
 	go traverseRepo(repo)
 	go calculateCommits()
 
@@ -93,6 +94,11 @@ func authorsAction(order string) {
 			fmt.Printf("%s\n", v)
 		}
 	}
+
+	end := time.Now()
+	fmt.Println("----------")
+	duration := end.Sub(begin)
+	fmt.Printf("Total time: %s", duration)
 }
 
 func traverseRepo(repo *git.Repository) {
