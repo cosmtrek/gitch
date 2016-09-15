@@ -38,6 +38,7 @@ func initApp() *cli.App {
 	app := cli.NewApp()
 	app.Name = "gitch"
 	app.Usage = "g(b)itch analyses history of a git project"
+	app.UsageText = "Please run at the project's root directory"
 	app.Version = "0.1.0"
 	app.Author = "Rick Yu <cosmtrek@gmail.com>"
 
@@ -62,6 +63,7 @@ func initApp() *cli.App {
 
 	return app
 }
+
 func main() {
 	app := initApp()
 	app.Run(os.Args)
@@ -71,7 +73,7 @@ func authorsAction(order string) {
 	cur, _ := os.Getwd()
 	repo, err := git.OpenRepository(cur)
 	if err != nil {
-		log.Fatal("Failed to open repo, err:", err)
+		log.Fatal("Failed to open repo, err: ", err)
 	}
 	defer repo.Free()
 
